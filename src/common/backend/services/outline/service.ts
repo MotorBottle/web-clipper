@@ -63,7 +63,7 @@ export default class OutlineDocumentService implements DocumentService {
       publish: true,
     });
     const doc = response?.data || (response as any);
-    const href = doc.url || `${this.baseUrl}/doc/${doc.urlId || doc.id}`;
+    const href = this.toAbsoluteUrl(doc.url || `/doc/${doc.urlId || doc.id}`);
     return {
       href,
     };
@@ -87,6 +87,14 @@ export default class OutlineDocumentService implements DocumentService {
       }
       const message = error?.data?.message || error?.message || 'Outline request failed.';
       throw new Error(message);
+    }
+  }
+
+  private toAbsoluteUrl(urlPath: string): string {
+    try {
+      return new URL(urlPath, `${this.baseUrl}/`).href;
+    } catch (error) {
+      return `${this.baseUrl}${urlPath.startsWith('/') ? '' : '/'}${urlPath}`;
     }
   }
 }
