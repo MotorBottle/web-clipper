@@ -9,6 +9,7 @@ import { pack } from './utils/pack';
     fs.mkdirSync(releaseDir);
   }
   await build();
+  verifyChromeDist(path.join(__dirname, '../dist/chrome'));
   await pack({
     releaseDir,
     distDir: path.join(__dirname, '../dist/chrome'),
@@ -34,7 +35,10 @@ import { pack } from './utils/pack';
     distDir: path.join(__dirname, '../dist'),
     fileName: 'web-clipper-firefox-store.zip',
   });
-})();
+})().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
 
 function build() {
   const buildScript = require.resolve('./build');
@@ -44,7 +48,55 @@ function build() {
     env: buildEnv as unknown as typeof process.env,
     stdio: 'inherit',
   });
-  return new Promise((r) => {
-    cp.on('message', r);
+  return new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const handleResolve = () => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+    const handleReject = (error: Error) => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      reject(error);
+    };
+    cp.on('message', (message: any) => {
+      if (message?.type === 'Success') {
+        handleResolve();
+        return;
+      }
+      if (message?.type === 'Error') {
+        handleReject(new Error(message.error || 'Build failed.'));
+      }
+    });
+    cp.on('error', (error) => {
+      handleReject(error);
+    });
+    cp.on('exit', (code) => {
+      if (settled) {
+        return;
+      }
+      if (code === 0) {
+        handleResolve();
+        return;
+      }
+      handleReject(new Error(`Build process exited with code ${code}.`));
+    });
   });
+}
+
+function verifyChromeDist(chromeDistPath: string) {
+  const requiredFiles = ['manifest.json', 'background.js', 'content_script.js', 'tool.html'];
+  const missing = requiredFiles.filter((file) => !fs.existsSync(path.join(chromeDistPath, file)));
+  if (!missing.length) {
+    return;
+  }
+  const existing = fs.existsSync(chromeDistPath) ? fs.readdirSync(chromeDistPath) : [];
+  throw new Error(
+    `Invalid chrome build output. Missing files: ${missing.join(', ')}. Existing: ${existing.join(', ')}`
+  );
 }

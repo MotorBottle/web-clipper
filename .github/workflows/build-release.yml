@@ -28,6 +28,14 @@ jobs:
       - name: Build release zips
         run: npm run release
 
+      - name: Verify chrome package
+        run: |
+          unzip -l release/web-clipper-chrome.zip
+          unzip -l release/web-clipper-chrome.zip | grep -q "manifest.json"
+          unzip -l release/web-clipper-chrome.zip | grep -q "background.js"
+          unzip -l release/web-clipper-chrome.zip | grep -q "content_script.js"
+          unzip -l release/web-clipper-chrome.zip | grep -q "tool.html"
+
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
