@@ -15,10 +15,9 @@ const LAZY_IMAGE_ATTRIBUTES = [
   'srcset',
 ];
 
-const XIAOHONGSHU_MEDIA_SELECTORS = [
+const XIAOHONGSHU_SLIDER_SELECTORS = [
   '.xhs-slider-container',
   '[class*="xhs-slider-container"]',
-  '.media-container',
 ];
 
 const normalizeUrl = (url: string, baseUrl: string) => {
@@ -117,6 +116,25 @@ const collectImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
       urls.add(src);
     }
   });
+  $root
+    .find('[imgsrc], [data-imgsrc], [data-src], [data-origin], [data-original], [data-actualsrc]')
+    .each((_, element) => {
+      const $element = $(element);
+      const src = getImageCandidate($element, baseUrl);
+      if (src) {
+        urls.add(src);
+      }
+    });
+  $root.find('[style*="background-image"]').each((_, element) => {
+    const style = ($(element).attr('style') || '').trim();
+    parseBackgroundImageUrls(style)
+      .map((url) => normalizeUrl(url, baseUrl))
+      .forEach((url) => {
+        if (url) {
+          urls.add(url);
+        }
+      });
+  });
   return Array.from(urls).filter(Boolean);
 };
 
@@ -141,6 +159,13 @@ const appendMissingImagesToHtml = (html: string, imageUrls: string[], baseUrl: s
     return html;
   }
   return `${html}${missingUrls.map((url) => `<p><img src="${url}" alt="" /></p>`).join('')}`;
+};
+
+const keepOnlyAllowedImagesInHtml = (html: string, allowedImageUrls: Set<string>, baseUrl: string) => {
+  return (html || '').replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (tag, src) => {
+    const normalized = normalizeUrl((src || '').trim(), baseUrl);
+    return allowedImageUrls.has(normalized) ? tag : '';
+  });
 };
 
 export default new TextExtension(
@@ -183,18 +208,14 @@ export default new TextExtension(
       }
 
       if (isXiaohongshu) {
-        const imageUrlsSet = new Set<string>();
-        const articleRoot =
-          $documentClone.find('article').first().length > 0
-            ? $documentClone.find('article').first()
-            : $documentClone.find('body').first();
-        collectImageUrls(articleRoot, $, baseUrl).forEach((url) => imageUrlsSet.add(url));
-        XIAOHONGSHU_MEDIA_SELECTORS.forEach((selector) => {
+        const sliderImageUrls = new Set<string>();
+        XIAOHONGSHU_SLIDER_SELECTORS.forEach((selector) => {
           $documentClone.find(selector).each((_, element) => {
-            collectImageUrls($(element), $, baseUrl).forEach((url) => imageUrlsSet.add(url));
+            collectImageUrls($(element), $, baseUrl).forEach((url) => sliderImageUrls.add(url));
           });
         });
-        const imageUrls = Array.from(imageUrlsSet);
+        article.content = keepOnlyAllowedImagesInHtml(article.content, sliderImageUrls, baseUrl);
+        const imageUrls = Array.from(sliderImageUrls);
         if (imageUrls.length > 0) {
           article.content = appendMissingImagesToHtml(article.content, imageUrls, baseUrl);
         }
