@@ -36,6 +36,7 @@ You can use Web Clipper to save anything on the web to anywhere.
 - [Siyuan](https://b3log.org/siyuan)
 - [Ulysses](https://ulysses.app/)
 - [Confluence](https://www.atlassian.com/software/confluence)
+- [Outline](https://www.getoutline.com/)
 
 ### Install
 

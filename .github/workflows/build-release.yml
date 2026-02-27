@@ -1,0 +1,39 @@
+name: Build Extensions
+
+on:
+  push:
+    branches: [main, master]
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+        with:
+          fetch-depth: 0
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '16.x'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+
+      - name: Build release zips
+        run: npm run release
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: web-clipper-build
+          path: |
+            release/web-clipper-chrome.zip
+            release/web-clipper-firefox.zip
+            release/web-clipper-firefox-store.zip
