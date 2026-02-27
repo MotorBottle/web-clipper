@@ -2,6 +2,8 @@ import { TextExtension } from '@/extensions/common';
 
 const isXiaohongshuUrl = (url: string) => /^https?:\/\/(?:www\.)?xiaohongshu\.com\//i.test(url);
 const LAZY_IMAGE_ATTRIBUTES = [
+  'imgsrc',
+  'data-imgsrc',
   'data-src',
   'data-original',
   'data-origin',
@@ -11,6 +13,12 @@ const LAZY_IMAGE_ATTRIBUTES = [
   'data-image',
   'data-echo',
   'srcset',
+];
+
+const XIAOHONGSHU_MEDIA_SELECTORS = [
+  '.xhs-slider-container',
+  '[class*="xhs-slider-container"]',
+  '.media-container',
 ];
 
 const normalizeUrl = (url: string, baseUrl: string) => {
@@ -50,25 +58,31 @@ const parseBackgroundImageUrls = (style: string) => {
   return urls;
 };
 
+const getImageCandidate = ($img: JQuery, baseUrl: string) => {
+  const currentSrc = ($img.attr('src') || '').trim();
+  if (currentSrc && !currentSrc.startsWith('data:image')) {
+    return normalizeUrl(currentSrc, baseUrl);
+  }
+  for (const attribute of LAZY_IMAGE_ATTRIBUTES) {
+    const value = ($img.attr(attribute) || '').trim();
+    if (!value) {
+      continue;
+    }
+    const candidate = attribute === 'srcset' ? srcFromSrcSet(value) : value;
+    if (!candidate) {
+      continue;
+    }
+    return normalizeUrl(candidate, baseUrl);
+  }
+  return '';
+};
+
 const normalizeImagesForXiaohongshu = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
   $root.find('img').each((_, element) => {
     const $img = $(element);
-    const currentSrc = ($img.attr('src') || '').trim();
-    if (currentSrc && !currentSrc.startsWith('data:image')) {
-      $img.attr('src', normalizeUrl(currentSrc, baseUrl));
-      return;
-    }
-    for (const attribute of LAZY_IMAGE_ATTRIBUTES) {
-      const value = ($img.attr(attribute) || '').trim();
-      if (!value) {
-        continue;
-      }
-      const candidate = attribute === 'srcset' ? srcFromSrcSet(value) : value;
-      if (!candidate) {
-        continue;
-      }
-      $img.attr('src', normalizeUrl(candidate, baseUrl));
-      return;
+    const src = getImageCandidate($img, baseUrl);
+    if (src) {
+      $img.attr('src', src);
     }
   });
 
@@ -98,14 +112,9 @@ const collectImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
   const urls = new Set<string>();
   $root.find('img').each((_, element) => {
     const $img = $(element);
-    const src = ($img.attr('src') || '').trim();
-    if (src && !src.startsWith('data:image')) {
-      urls.add(normalizeUrl(src, baseUrl));
-      return;
-    }
-    const dataSrc = ($img.attr('data-src') || '').trim();
-    if (dataSrc) {
-      urls.add(normalizeUrl(dataSrc, baseUrl));
+    const src = getImageCandidate($img, baseUrl);
+    if (src) {
+      urls.add(src);
     }
   });
   return Array.from(urls).filter(Boolean);
@@ -180,8 +189,10 @@ export default new TextExtension(
             ? $documentClone.find('article').first()
             : $documentClone.find('body').first();
         collectImageUrls(articleRoot, $, baseUrl).forEach((url) => imageUrlsSet.add(url));
-        $documentClone.find('.media-container').each((_, element) => {
-          collectImageUrls($(element), $, baseUrl).forEach((url) => imageUrlsSet.add(url));
+        XIAOHONGSHU_MEDIA_SELECTORS.forEach((selector) => {
+          $documentClone.find(selector).each((_, element) => {
+            collectImageUrls($(element), $, baseUrl).forEach((url) => imageUrlsSet.add(url));
+          });
         });
         const imageUrls = Array.from(imageUrlsSet);
         if (imageUrls.length > 0) {
