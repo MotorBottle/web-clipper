@@ -19,6 +19,7 @@ const XIAOHONGSHU_SLIDER_SELECTORS = [
   '.xhs-slider-container',
   '[class*="xhs-slider-container"]',
 ];
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const normalizeUrl = (url: string, baseUrl: string) => {
   const cleaned = (url || '').trim().replace(/^['"]|['"]$/g, '');
@@ -168,6 +169,16 @@ const keepOnlyAllowedImagesInHtml = (html: string, allowedImageUrls: Set<string>
   });
 };
 
+const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
+  const sliderImageUrls = new Set<string>();
+  XIAOHONGSHU_SLIDER_SELECTORS.forEach((selector) => {
+    $root.find(selector).each((_, element) => {
+      collectImageUrls($(element), $, baseUrl).forEach((url) => sliderImageUrls.add(url));
+    });
+  });
+  return sliderImageUrls;
+};
+
 export default new TextExtension(
   {
     name: 'Readability',
@@ -208,13 +219,19 @@ export default new TextExtension(
       }
 
       if (isXiaohongshu) {
-        const sliderImageUrls = new Set<string>();
-        XIAOHONGSHU_SLIDER_SELECTORS.forEach((selector) => {
-          $documentClone.find(selector).each((_, element) => {
-            collectImageUrls($(element), $, baseUrl).forEach((url) => sliderImageUrls.add(url));
-          });
-        });
-        article.content = keepOnlyAllowedImagesInHtml(article.content, sliderImageUrls, baseUrl);
+        const sliderImageUrls = collectSliderImageUrls($documentClone, $, baseUrl);
+        if (sliderImageUrls.size === 0) {
+          for (const delayMs of [120, 220, 360]) {
+            await wait(delayMs);
+            collectSliderImageUrls($(document), $, baseUrl).forEach((url) => sliderImageUrls.add(url));
+            if (sliderImageUrls.size > 0) {
+              break;
+            }
+          }
+        }
+        if (sliderImageUrls.size > 0) {
+          article.content = keepOnlyAllowedImagesInHtml(article.content, sliderImageUrls, baseUrl);
+        }
         const imageUrls = Array.from(sliderImageUrls);
         if (imageUrls.length > 0) {
           article.content = appendMissingImagesToHtml(article.content, imageUrls, baseUrl);
