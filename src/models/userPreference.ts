@@ -259,21 +259,17 @@ builder
 builder.subscript(async function initStore({ dispatch, history }) {
   await dispatch(initAccounts.started());
   const result = await storage.getPreference();
+  const pathname = history.location.pathname;
   const tabService = Container.get(ITabService);
   const tabInfo = await tabService.getCurrent();
   if (tabInfo.title && tabInfo.url) {
     dispatch(initTabInfo({ title: tabInfo.title, url: tabInfo.url }));
   }
   dispatch(removeActionNamespace(initUserPreference(result)));
-  if (history.location.pathname !== '/' && history.location.pathname !== '/editor') {
-    return;
-  }
-  if (result.defaultPluginId) {
+  if ((pathname === '/' || pathname === '/editor') && result.defaultPluginId) {
     dispatch(routerRedux.push(`/plugins/${result.defaultPluginId}`));
   }
-  const defaultAccountId = syncStorageService.get('defaultAccountId');
-  if (defaultAccountId) {
-    dispatch(asyncChangeAccount.started({ id: defaultAccountId }));
+  if (pathname.startsWith('/preference')) {
     return;
   }
   const accounts = syncStorageService.get('accounts', '[]');
@@ -282,6 +278,12 @@ builder.subscript(async function initStore({ dispatch, history }) {
     accountList = typeof accounts === 'string' ? JSON.parse(accounts) : accounts;
   } catch (error) {
     accountList = [];
+  }
+  const defaultAccountId = syncStorageService.get('defaultAccountId');
+  const hasDefaultAccount = !!defaultAccountId && accountList.some(o => o.id === defaultAccountId);
+  if (hasDefaultAccount && defaultAccountId) {
+    dispatch(asyncChangeAccount.started({ id: defaultAccountId }));
+    return;
   }
   if (Array.isArray(accountList) && accountList.length > 0 && accountList[0].id) {
     dispatch(asyncChangeAccount.started({ id: accountList[0].id }));

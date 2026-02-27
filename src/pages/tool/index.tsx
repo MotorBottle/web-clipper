@@ -104,7 +104,10 @@ const Page = React.memo<PageProps>(
           return;
         }
       }
-    }, [accounts.length, dispatch, pathname]);
+      if (!pathname.startsWith('/preference') && !currentAccount && !loadingAccount && accounts[0]) {
+        dispatch(asyncChangeAccount.started({ id: accounts[0].id }));
+      }
+    }, [accounts, currentAccount, dispatch, loadingAccount, pathname]);
 
     const onRepositorySelect = useCallback(
       (repositoryId: string) => {
@@ -117,15 +120,16 @@ const Page = React.memo<PageProps>(
       repositoryId = currentRepository.id;
     }
     useEffect(() => {
-      if (currentAccount && currentAccount.defaultRepositoryId) {
-        if (repositoryId) {
-          return;
-        }
-        if (!repositories.some(({ id }) => id === currentAccount.defaultRepositoryId)) {
-          return;
-        }
-        onRepositorySelect(currentAccount.defaultRepositoryId);
+      if (repositoryId || repositories.length === 0) {
+        return;
       }
+      if (currentAccount && currentAccount.defaultRepositoryId) {
+        if (repositories.some(({ id }) => id === currentAccount.defaultRepositoryId)) {
+          onRepositorySelect(currentAccount.defaultRepositoryId);
+          return;
+        }
+      }
+      onRepositorySelect(repositories[0].id);
     }, [repositoryId, currentAccount, repositories, onRepositorySelect]);
 
     const push = (path: string) => dispatch(routerRedux.push(path));
