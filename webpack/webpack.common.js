@@ -54,6 +54,19 @@ module.exports = {
   module: {
     rules: [
       {
+        test: /\.js$/,
+        include: /node_modules[\\/]webdav[\\/]/,
+        loader: 'ts-loader',
+        options: {
+          transpileOnly: true,
+          compilerOptions: {
+            allowJs: true,
+            module: 'esnext',
+            target: 'es2018',
+          },
+        },
+      },
+      {
         test: /\.md$/,
         use: 'raw-loader',
       },
