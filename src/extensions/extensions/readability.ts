@@ -121,12 +121,30 @@ const normalizeImagesForXiaohongshu = ($root: JQuery, $: JQueryStatic, baseUrl: 
   });
 };
 
-const pushUnique = (result: string[], seen: Set<string>, url: string) => {
-  if (!url || seen.has(url)) {
-    return;
+const parseSlideOrder = ($node: JQuery) => {
+  const swiperIndex = $node.closest('[data-swiper-slide-index]').attr('data-swiper-slide-index');
+  if (typeof swiperIndex === 'string') {
+    const parsed = parseInt(swiperIndex, 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
   }
-  seen.add(url);
-  result.push(url);
+  const dataIndex = $node.closest('[data-index]').attr('data-index');
+  if (typeof dataIndex === 'string') {
+    const parsed = parseInt(dataIndex, 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed;
+    }
+  }
+  const ariaLabel = $node.closest('[aria-label]').attr('aria-label') || '';
+  const matched = ariaLabel.match(/(\d+)\s*\/\s*\d+/);
+  if (matched) {
+    const parsed = parseInt(matched[1], 10);
+    if (!Number.isNaN(parsed)) {
+      return parsed - 1;
+    }
+  }
+  return null;
 };
 
 const isDuplicatedSlideNode = ($node: JQuery) => {
@@ -136,36 +154,48 @@ const isDuplicatedSlideNode = ($node: JQuery) => {
   );
 };
 
-const collectImageUrlsInOrder = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
-  const result: string[] = [];
-  const seen = new Set<string>();
+interface ImageOrderEntry {
+  url: string;
+  domOrder: number;
+  slideOrder: number | null;
+}
+
+const collectImageOrderEntries = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
+  const entries: ImageOrderEntry[] = [];
+  let domOrder = 0;
   $root
     .find(
       'img, [imgsrc], [data-imgsrc], [data-src], [data-origin], [data-original], [data-actualsrc], [style*="background-image"]'
     )
     .each((_, element) => {
+      domOrder += 1;
       const $element = $(element);
       if (isDuplicatedSlideNode($element)) {
         return;
       }
+      const slideOrder = parseSlideOrder($element);
       if (($element.attr('style') || '').includes('background-image')) {
         const style = ($element.attr('style') || '').trim();
         parseBackgroundImageUrls(style)
           .map((url) => normalizeUrl(url, baseUrl))
-          .forEach((url) => pushUnique(result, seen, url));
+          .forEach((url) => {
+            if (!url) {
+              return;
+            }
+            entries.push({ url, domOrder, slideOrder });
+          });
         return;
       }
       const url = getImageCandidate($element, baseUrl);
       if (url) {
-        pushUnique(result, seen, url);
+        entries.push({ url, domOrder, slideOrder });
       }
     });
-  return result;
+  return entries;
 };
 
 const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
-  const mergedUrls: string[] = [];
-  const mergedSeen = new Set<string>();
+  const mergedEntries: ImageOrderEntry[] = [];
   const visited = new Set<Element>();
   XIAOHONGSHU_SLIDER_SELECTORS.forEach((selector) => {
     $root.find(selector).each((_, element) => {
@@ -174,11 +204,50 @@ const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string)
       }
       visited.add(element);
       const $container = $(element);
-      const urls = collectImageUrlsInOrder($container, $, baseUrl);
-      urls.forEach((url) => pushUnique(mergedUrls, mergedSeen, url));
+      mergedEntries.push(...collectImageOrderEntries($container, $, baseUrl));
     });
   });
-  return mergedUrls;
+  const bestByUrl = new Map<string, ImageOrderEntry>();
+  mergedEntries.forEach((entry) => {
+    const old = bestByUrl.get(entry.url);
+    if (!old) {
+      bestByUrl.set(entry.url, entry);
+      return;
+    }
+    if (old.slideOrder === null && entry.slideOrder !== null) {
+      bestByUrl.set(entry.url, entry);
+      return;
+    }
+    if (old.slideOrder !== null && entry.slideOrder === null) {
+      return;
+    }
+    if (old.slideOrder !== null && entry.slideOrder !== null) {
+      if (entry.slideOrder < old.slideOrder) {
+        bestByUrl.set(entry.url, entry);
+        return;
+      }
+      if (entry.slideOrder === old.slideOrder && entry.domOrder < old.domOrder) {
+        bestByUrl.set(entry.url, entry);
+      }
+      return;
+    }
+    if (entry.domOrder < old.domOrder) {
+      bestByUrl.set(entry.url, entry);
+    }
+  });
+  const ordered = Array.from(bestByUrl.values()).sort((a, b) => {
+    if (a.slideOrder !== null && b.slideOrder !== null) {
+      return a.slideOrder - b.slideOrder || a.domOrder - b.domOrder;
+    }
+    if (a.slideOrder !== null) {
+      return -1;
+    }
+    if (b.slideOrder !== null) {
+      return 1;
+    }
+    return a.domOrder - b.domOrder;
+  });
+  return ordered.map((entry) => entry.url);
 };
 
 const stripAllImagesFromHtml = (html: string) => {
