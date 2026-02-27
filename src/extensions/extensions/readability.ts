@@ -163,13 +163,9 @@ const collectImageUrlsInOrder = ($root: JQuery, $: JQueryStatic, baseUrl: string
   return result;
 };
 
-const isLikelyThumbnailContainer = ($container: JQuery) => {
-  const className = (($container.attr('class') || '') + ' ' + ($container.attr('id') || '')).toLowerCase();
-  return /thumb|thumbnail|indicator|dot|pagination/.test(className);
-};
-
 const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
-  const candidates: Array<{ urls: string[]; score: number }> = [];
+  const mergedUrls: string[] = [];
+  const mergedSeen = new Set<string>();
   const visited = new Set<Element>();
   XIAOHONGSHU_SLIDER_SELECTORS.forEach((selector) => {
     $root.find(selector).each((_, element) => {
@@ -179,18 +175,10 @@ const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string)
       visited.add(element);
       const $container = $(element);
       const urls = collectImageUrlsInOrder($container, $, baseUrl);
-      if (urls.length === 0) {
-        return;
-      }
-      const score = urls.length * 10 - (isLikelyThumbnailContainer($container) ? 5 : 0);
-      candidates.push({ urls, score });
+      urls.forEach((url) => pushUnique(mergedUrls, mergedSeen, url));
     });
   });
-  if (candidates.length === 0) {
-    return [];
-  }
-  candidates.sort((a, b) => b.score - a.score);
-  return candidates[0].urls;
+  return mergedUrls;
 };
 
 const stripAllImagesFromHtml = (html: string) => {
