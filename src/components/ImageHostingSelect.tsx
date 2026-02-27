@@ -16,7 +16,13 @@ export const ImageHostingSelect: React.ForwardRefRenderFunction<any, ImageHostin
   { supportedImageHostingServices, ...props },
   ref
 ) => (
-  <Select allowClear className={styles.imageHostingSelect} {...props} ref={ref}>
+  <Select
+    allowClear
+    className={styles.imageHostingSelect}
+    notFoundContent={props.notFoundContent || 'No image host configured (optional)'}
+    {...props}
+    ref={ref}
+  >
     {supportedImageHostingServices.map(({ imageHostingServices: { id, remark }, meta }) => {
       return (
         <Select.Option key={id} value={id}>

@@ -274,6 +274,17 @@ builder.subscript(async function initStore({ dispatch, history }) {
   const defaultAccountId = syncStorageService.get('defaultAccountId');
   if (defaultAccountId) {
     dispatch(asyncChangeAccount.started({ id: defaultAccountId }));
+    return;
+  }
+  const accounts = syncStorageService.get('accounts', '[]');
+  let accountList: Array<{ id: string }> = [];
+  try {
+    accountList = typeof accounts === 'string' ? JSON.parse(accounts) : accounts;
+  } catch (error) {
+    accountList = [];
+  }
+  if (Array.isArray(accountList) && accountList.length > 0 && accountList[0].id) {
+    dispatch(asyncChangeAccount.started({ id: accountList[0].id }));
   }
 });
 

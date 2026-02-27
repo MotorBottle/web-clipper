@@ -157,6 +157,7 @@ const Page: React.FC<PageProps> = ({
                   loading={verifying}
                   disabled={!verified}
                   supportedImageHostingServices={supportedImageHostingServices}
+                  placeholder="Optional"
                 />
               )}
             </Form.Item>

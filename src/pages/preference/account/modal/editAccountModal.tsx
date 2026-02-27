@@ -150,6 +150,7 @@ const Page: React.FC<PageProps> = ({
             <ImageHostingSelect
               disabled={!verified}
               supportedImageHostingServices={supportedImageHostingServices}
+              placeholder="Optional"
             ></ImageHostingSelect>
           )}
         </Form.Item>
