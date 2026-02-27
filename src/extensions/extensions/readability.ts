@@ -19,7 +19,6 @@ const XIAOHONGSHU_SLIDER_SELECTORS = [
   '.xhs-slider-container',
   '[class*="xhs-slider-container"]',
 ];
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const normalizeUrl = (url: string, baseUrl: string) => {
   const cleaned = (url || '').trim().replace(/^['"]|['"]$/g, '');
@@ -58,21 +57,35 @@ const parseBackgroundImageUrls = (style: string) => {
   return urls;
 };
 
-const getImageCandidate = ($img: JQuery, baseUrl: string) => {
-  const currentSrc = ($img.attr('src') || '').trim();
-  if (currentSrc && !currentSrc.startsWith('data:image')) {
-    return normalizeUrl(currentSrc, baseUrl);
+const isValidImageCandidate = (value: string) => {
+  const v = (value || '').trim().toLowerCase();
+  if (!v) {
+    return false;
   }
+  if (v.startsWith('data:image') || v.startsWith('blob:')) {
+    return false;
+  }
+  if (v === 'true' || v === 'false' || v === 'null' || v === 'undefined') {
+    return false;
+  }
+  return true;
+};
+
+const getImageCandidate = ($img: JQuery, baseUrl: string) => {
   for (const attribute of LAZY_IMAGE_ATTRIBUTES) {
     const value = ($img.attr(attribute) || '').trim();
     if (!value) {
       continue;
     }
     const candidate = attribute === 'srcset' ? srcFromSrcSet(value) : value;
-    if (!candidate) {
+    if (!isValidImageCandidate(candidate)) {
       continue;
     }
     return normalizeUrl(candidate, baseUrl);
+  }
+  const currentSrc = ($img.attr('src') || '').trim();
+  if (isValidImageCandidate(currentSrc)) {
+    return normalizeUrl(currentSrc, baseUrl);
   }
   return '';
 };
@@ -108,75 +121,87 @@ const normalizeImagesForXiaohongshu = ($root: JQuery, $: JQueryStatic, baseUrl: 
   });
 };
 
-const collectImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
-  const urls = new Set<string>();
-  $root.find('img').each((_, element) => {
-    const $img = $(element);
-    const src = getImageCandidate($img, baseUrl);
-    if (src) {
-      urls.add(src);
-    }
-  });
+const pushUnique = (result: string[], seen: Set<string>, url: string) => {
+  if (!url || seen.has(url)) {
+    return;
+  }
+  seen.add(url);
+  result.push(url);
+};
+
+const isDuplicatedSlideNode = ($node: JQuery) => {
+  return (
+    $node.closest('[class*="swiper-slide-duplicate"]').length > 0 ||
+    $node.closest('[class*="slick-cloned"]').length > 0
+  );
+};
+
+const collectImageUrlsInOrder = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
+  const result: string[] = [];
+  const seen = new Set<string>();
   $root
-    .find('[imgsrc], [data-imgsrc], [data-src], [data-origin], [data-original], [data-actualsrc]')
+    .find(
+      'img, [imgsrc], [data-imgsrc], [data-src], [data-origin], [data-original], [data-actualsrc], [style*="background-image"]'
+    )
     .each((_, element) => {
       const $element = $(element);
-      const src = getImageCandidate($element, baseUrl);
-      if (src) {
-        urls.add(src);
+      if (isDuplicatedSlideNode($element)) {
+        return;
+      }
+      if (($element.attr('style') || '').includes('background-image')) {
+        const style = ($element.attr('style') || '').trim();
+        parseBackgroundImageUrls(style)
+          .map((url) => normalizeUrl(url, baseUrl))
+          .forEach((url) => pushUnique(result, seen, url));
+        return;
+      }
+      const url = getImageCandidate($element, baseUrl);
+      if (url) {
+        pushUnique(result, seen, url);
       }
     });
-  $root.find('[style*="background-image"]').each((_, element) => {
-    const style = ($(element).attr('style') || '').trim();
-    parseBackgroundImageUrls(style)
-      .map((url) => normalizeUrl(url, baseUrl))
-      .forEach((url) => {
-        if (url) {
-          urls.add(url);
-        }
-      });
-  });
-  return Array.from(urls).filter(Boolean);
+  return result;
 };
 
-const collectImageUrlsFromHtml = (html: string, baseUrl: string) => {
-  const urls = new Set<string>();
-  const regex = /<img[^>]+src=["']([^"']+)["'][^>]*>/gi;
-  let match = regex.exec(html || '');
-  while (match) {
-    const src = (match[1] || '').trim();
-    if (src && !src.startsWith('data:image')) {
-      urls.add(normalizeUrl(src, baseUrl));
-    }
-    match = regex.exec(html || '');
-  }
-  return urls;
-};
-
-const appendMissingImagesToHtml = (html: string, imageUrls: string[], baseUrl: string) => {
-  const existingUrls = collectImageUrlsFromHtml(html, baseUrl);
-  const missingUrls = imageUrls.filter((url) => !existingUrls.has(url));
-  if (!missingUrls.length) {
-    return html;
-  }
-  return `${html}${missingUrls.map((url) => `<p><img src="${url}" alt="" /></p>`).join('')}`;
-};
-
-const keepOnlyAllowedImagesInHtml = (html: string, allowedImageUrls: Set<string>, baseUrl: string) => {
-  return (html || '').replace(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi, (tag, src) => {
-    const normalized = normalizeUrl((src || '').trim(), baseUrl);
-    return allowedImageUrls.has(normalized) ? tag : '';
-  });
+const isLikelyThumbnailContainer = ($container: JQuery) => {
+  const className = (($container.attr('class') || '') + ' ' + ($container.attr('id') || '')).toLowerCase();
+  return /thumb|thumbnail|indicator|dot|pagination/.test(className);
 };
 
 const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
-  const sliderImageUrls = new Set<string>();
+  const candidates: Array<{ urls: string[]; score: number }> = [];
+  const visited = new Set<Element>();
   XIAOHONGSHU_SLIDER_SELECTORS.forEach((selector) => {
     $root.find(selector).each((_, element) => {
-      collectImageUrls($(element), $, baseUrl).forEach((url) => sliderImageUrls.add(url));
+      if (visited.has(element)) {
+        return;
+      }
+      visited.add(element);
+      const $container = $(element);
+      const urls = collectImageUrlsInOrder($container, $, baseUrl);
+      if (urls.length === 0) {
+        return;
+      }
+      const score = urls.length * 10 - (isLikelyThumbnailContainer($container) ? 5 : 0);
+      candidates.push({ urls, score });
     });
   });
-  return sliderImageUrls;
+  if (candidates.length === 0) {
+    return [];
+  }
+  candidates.sort((a, b) => b.score - a.score);
+  return candidates[0].urls;
+};
+
+const stripAllImagesFromHtml = (html: string) => {
+  return (html || '').replace(/<img[^>]*>/gi, '');
+};
+
+const appendImagesToHtml = (html: string, imageUrls: string[]) => {
+  if (!imageUrls.length) {
+    return html;
+  }
+  return `${html}${imageUrls.map((url) => `<p><img src="${url}" alt="" /></p>`).join('')}`;
 };
 
 export default new TextExtension(
@@ -220,21 +245,9 @@ export default new TextExtension(
 
       if (isXiaohongshu) {
         const sliderImageUrls = collectSliderImageUrls($documentClone, $, baseUrl);
-        if (sliderImageUrls.size === 0) {
-          for (const delayMs of [120, 220, 360]) {
-            await wait(delayMs);
-            collectSliderImageUrls($(document), $, baseUrl).forEach((url) => sliderImageUrls.add(url));
-            if (sliderImageUrls.size > 0) {
-              break;
-            }
-          }
-        }
-        if (sliderImageUrls.size > 0) {
-          article.content = keepOnlyAllowedImagesInHtml(article.content, sliderImageUrls, baseUrl);
-        }
-        const imageUrls = Array.from(sliderImageUrls);
-        if (imageUrls.length > 0) {
-          article.content = appendMissingImagesToHtml(article.content, imageUrls, baseUrl);
+        if (sliderImageUrls.length > 0) {
+          article.content = stripAllImagesFromHtml(article.content);
+          article.content = appendImagesToHtml(article.content, sliderImageUrls);
         }
       }
 
