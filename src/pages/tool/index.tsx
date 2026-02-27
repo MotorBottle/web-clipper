@@ -121,9 +121,12 @@ const Page = React.memo<PageProps>(
         if (repositoryId) {
           return;
         }
+        if (!repositories.some(({ id }) => id === currentAccount.defaultRepositoryId)) {
+          return;
+        }
         onRepositorySelect(currentAccount.defaultRepositoryId);
       }
-    }, [repositoryId, currentAccount, onRepositorySelect]);
+    }, [repositoryId, currentAccount, repositories, onRepositorySelect]);
 
     const push = (path: string) => dispatch(routerRedux.push(path));
 

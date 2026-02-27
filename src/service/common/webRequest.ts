@@ -15,6 +15,7 @@ export interface RequestInBackgroundOptions {
   data?: any;
   prefix?: string;
   headers?: HeadersInit;
+  timeout?: number;
 }
 
 export interface IWebRequestService {

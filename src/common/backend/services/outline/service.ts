@@ -7,41 +7,18 @@ import {
   OutlineCollectionResponse,
   OutlineDocumentResponse,
 } from './interface';
-import { extend, RequestMethod } from 'umi-request';
+import { IWebRequestService } from '@/service/common/webRequest';
+import Container from 'typedi';
 
 export default class OutlineDocumentService implements DocumentService {
-  private request: RequestMethod;
+  private webRequestService: IWebRequestService;
   private baseUrl: string;
   private config: OutlineBackendServiceConfig;
 
   constructor(config: OutlineBackendServiceConfig) {
     this.config = config;
     this.baseUrl = (config.baseUrl || 'https://app.getoutline.com').replace(/\/+$/, '');
-    this.request = extend({
-      prefix: `${this.baseUrl}/api/`,
-      timeout: 10000,
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-      },
-    });
-    this.request.interceptors.response.use(
-      async response => {
-        if (response.status === 401) {
-          throw new UnauthorizedError(
-            'Unauthorized! Please check your Outline API key or login status.'
-          );
-        }
-        if (!response.ok) {
-          const data = await response.clone().json().catch(() => ({}));
-          const message = data?.message || data?.error || response.statusText;
-          throw new Error(`(${response.status}) ${message}`);
-        }
-        return response;
-      },
-      error => {
-        throw error;
-      }
-    );
+    this.webRequestService = Container.get(IWebRequestService);
   }
 
   getId = () => {
@@ -49,7 +26,7 @@ export default class OutlineDocumentService implements DocumentService {
   };
 
   getUserInfo = async () => {
-    const response = await this.request.post<OutlineAuthInfoResponse>('auth.info');
+    const response = await this.post<OutlineAuthInfoResponse>('auth.info');
     const user = response?.data?.user || response?.user || response?.data;
     const name = user?.name || 'Outline User';
     const avatar = user?.avatarUrl || '';
@@ -63,7 +40,7 @@ export default class OutlineDocumentService implements DocumentService {
   };
 
   getRepositories = async (): Promise<Repository[]> => {
-    const response = await this.request.post<OutlineCollectionResponse>('collections.list');
+    const response = await this.post<OutlineCollectionResponse>('collections.list');
     const collections = response?.data || [];
     return collections.map(collection => ({
       id: collection.id,
@@ -79,13 +56,11 @@ export default class OutlineDocumentService implements DocumentService {
     title,
     content,
   }: CreateDocumentRequest): Promise<CompleteStatus> => {
-    const response = await this.request.post<OutlineDocumentResponse>('documents.create', {
-      data: {
-        collectionId: repositoryId,
-        title,
-        text: content,
-        publish: true,
-      },
+    const response = await this.post<OutlineDocumentResponse>('documents.create', {
+      collectionId: repositoryId,
+      title,
+      text: content,
+      publish: true,
     });
     const doc = response?.data || (response as any);
     const href = doc.url || `${this.baseUrl}/doc/${doc.urlId || doc.id}`;
@@ -93,4 +68,25 @@ export default class OutlineDocumentService implements DocumentService {
       href,
     };
   };
+
+  private async post<T>(method: string, data?: any): Promise<T> {
+    const url = `${this.baseUrl}/api/${method}`;
+    try {
+      return await this.webRequestService.requestInBackground<T>(url, {
+        method: 'post',
+        data,
+        timeout: 10000,
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+      });
+    } catch (error: any) {
+      const status = error?.response?.status;
+      if (status === 401) {
+        throw new UnauthorizedError('Unauthorized! Please check your Outline API key.');
+      }
+      const message = error?.data?.message || error?.message || 'Outline request failed.';
+      throw new Error(message);
+    }
+  }
 }
