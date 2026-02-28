@@ -358,8 +358,9 @@ export default new TextExtension(
             article.content = noteHtml;
           }
         }
-        const sliderSource = noteRoot || $documentClone;
-        const sliderImageUrls = collectSliderImageUrls(sliderSource, $, baseUrl);
+        // On some XHS pages, note text and slider are rendered in separate containers.
+        // Always collect slider images from the whole document clone.
+        const sliderImageUrls = collectSliderImageUrls($documentClone, $, baseUrl);
         if (sliderImageUrls.length > 0) {
           article.content = stripAllImagesFromHtml(article.content);
           article.content = appendImagesToHtml(article.content, sliderImageUrls);
