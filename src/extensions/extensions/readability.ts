@@ -19,6 +19,19 @@ const XIAOHONGSHU_SLIDER_SELECTORS = [
   '.xhs-slider-container',
   '[class*="xhs-slider-container"]',
 ];
+const XIAOHONGSHU_NOTE_CONTENT_SELECTORS = [
+  '.note-content',
+  '.note_content',
+  '[class*="note-content"]',
+  '[class*="noteContent"]',
+  '[id*="note-content"]',
+  '[id*="noteContent"]',
+];
+const XIAOHONGSHU_EXCLUDE_SELECTORS = [
+  '.comments-container',
+  '[class*="comments-container"]',
+  '[id*="comments-container"]',
+];
 
 const normalizeUrl = (url: string, baseUrl: string) => {
   const cleaned = (url || '').trim().replace(/^['"]|['"]$/g, '');
@@ -119,6 +132,40 @@ const normalizeImagesForXiaohongshu = ($root: JQuery, $: JQueryStatic, baseUrl: 
       );
     });
   });
+};
+
+const removeXiaohongshuNoise = ($root: JQuery) => {
+  $root.find(XIAOHONGSHU_EXCLUDE_SELECTORS.join(',')).remove();
+};
+
+const getXiaohongshuNoteRoot = ($root: JQuery, $: JQueryStatic) => {
+  const candidates: Element[] = [];
+  const visited = new Set<Element>();
+  const selectors = XIAOHONGSHU_NOTE_CONTENT_SELECTORS.join(',');
+  $root.find(selectors).each((_, element) => {
+    if (visited.has(element)) {
+      return;
+    }
+    visited.add(element);
+    candidates.push(element);
+  });
+  if (candidates.length === 0) {
+    return null;
+  }
+  let best: Element | null = null;
+  let bestScore = -1;
+  candidates.forEach((element) => {
+    const $candidate = $(element).clone();
+    removeXiaohongshuNoise($candidate);
+    const textLength = ($candidate.text() || '').trim().length;
+    const imageCount = $candidate.find('img').length;
+    const score = textLength + imageCount * 200;
+    if (score > bestScore) {
+      bestScore = score;
+      best = element;
+    }
+  });
+  return best ? $(best) : null;
 };
 
 const parseSlideOrder = ($node: JQuery) => {
@@ -290,6 +337,7 @@ export default new TextExtension(
 
       if (isXiaohongshu) {
         normalizeImagesForXiaohongshu($documentClone, $, baseUrl);
+        removeXiaohongshuNoise($documentClone);
       }
 
       let article = new Readability(documentClone, {
@@ -301,7 +349,17 @@ export default new TextExtension(
       }
 
       if (isXiaohongshu) {
-        const sliderImageUrls = collectSliderImageUrls($documentClone, $, baseUrl);
+        const noteRoot = getXiaohongshuNoteRoot($documentClone, $);
+        if (noteRoot) {
+          const $note = noteRoot.clone();
+          removeXiaohongshuNoise($note);
+          const noteHtml = $note.html() || '';
+          if (noteHtml.trim()) {
+            article.content = noteHtml;
+          }
+        }
+        const sliderSource = noteRoot || $documentClone;
+        const sliderImageUrls = collectSliderImageUrls(sliderSource, $, baseUrl);
         if (sliderImageUrls.length > 0) {
           article.content = stripAllImagesFromHtml(article.content);
           article.content = appendImagesToHtml(article.content, sliderImageUrls);
