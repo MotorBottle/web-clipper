@@ -15,9 +15,13 @@ const LAZY_IMAGE_ATTRIBUTES = [
   'srcset',
 ];
 
-const XIAOHONGSHU_SLIDER_SELECTORS = [
-  '.xhs-slider-container',
-  '[class*="xhs-slider-container"]',
+const XIAOHONGSHU_NOTE_CONTAINER_SELECTORS = [
+  '.note-container',
+  '.note_container',
+  '[class*="note-container"]',
+  '[class*="noteContainer"]',
+  '[id*="note-container"]',
+  '[id*="noteContainer"]',
 ];
 const XIAOHONGSHU_NOTE_CONTENT_SELECTORS = [
   '.note-content',
@@ -27,10 +31,21 @@ const XIAOHONGSHU_NOTE_CONTENT_SELECTORS = [
   '[id*="note-content"]',
   '[id*="noteContent"]',
 ];
-const XIAOHONGSHU_EXCLUDE_SELECTORS = [
+const XIAOHONGSHU_COMMENTS_SELECTORS = [
   '.comments-container',
   '[class*="comments-container"]',
   '[id*="comments-container"]',
+];
+const XIAOHONGSHU_AUTHOR_SELECTORS = [
+  '.author-wrapper',
+  '[class*="author-wrapper"]',
+  '[class*="authorWrapper"]',
+  '[id*="author-wrapper"]',
+  '[id*="authorWrapper"]',
+];
+const XIAOHONGSHU_IMAGE_EXCLUDE_SELECTORS = [
+  ...XIAOHONGSHU_COMMENTS_SELECTORS,
+  ...XIAOHONGSHU_AUTHOR_SELECTORS,
 ];
 
 const normalizeUrl = (url: string, baseUrl: string) => {
@@ -135,7 +150,7 @@ const normalizeImagesForXiaohongshu = ($root: JQuery, $: JQueryStatic, baseUrl: 
 };
 
 const removeXiaohongshuNoise = ($root: JQuery) => {
-  $root.find(XIAOHONGSHU_EXCLUDE_SELECTORS.join(',')).remove();
+  $root.find(XIAOHONGSHU_COMMENTS_SELECTORS.join(',')).remove();
 };
 
 const getXiaohongshuNoteRoot = ($root: JQuery, $: JQueryStatic) => {
@@ -241,16 +256,17 @@ const collectImageOrderEntries = ($root: JQuery, $: JQueryStatic, baseUrl: strin
   return entries;
 };
 
-const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
+const collectNoteImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
   const mergedEntries: ImageOrderEntry[] = [];
   const visited = new Set<Element>();
-  XIAOHONGSHU_SLIDER_SELECTORS.forEach((selector) => {
+  XIAOHONGSHU_NOTE_CONTAINER_SELECTORS.forEach((selector) => {
     $root.find(selector).each((_, element) => {
       if (visited.has(element)) {
         return;
       }
       visited.add(element);
-      const $container = $(element);
+      const $container = $(element).clone();
+      $container.find(XIAOHONGSHU_IMAGE_EXCLUDE_SELECTORS.join(',')).remove();
       mergedEntries.push(...collectImageOrderEntries($container, $, baseUrl));
     });
   });
@@ -295,6 +311,54 @@ const collectSliderImageUrls = ($root: JQuery, $: JQueryStatic, baseUrl: string)
     return a.domOrder - b.domOrder;
   });
   return ordered.map((entry) => entry.url);
+};
+
+const escapeHtml = (text: string) =>
+  text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+
+const extractXiaohongshuAuthorInfo = ($root: JQuery, $: JQueryStatic, baseUrl: string) => {
+  const wrappers: Element[] = [];
+  const visited = new Set<Element>();
+
+  XIAOHONGSHU_AUTHOR_SELECTORS.forEach((selector) => {
+    $root.find(selector).each((_, element) => {
+      if (visited.has(element)) {
+        return;
+      }
+      visited.add(element);
+      wrappers.push(element);
+    });
+  });
+
+  for (const element of wrappers) {
+    const $wrapper = $(element);
+    const $link = $wrapper.find('a[href]').first();
+    const link = normalizeUrl(($link.attr('href') || '').trim(), baseUrl);
+    const linkText = ($link.text() || '').replace(/\s+/g, ' ').trim();
+    const nameText = ($wrapper.find('[class*="name"], [class*="nickname"]').first().text() || '')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    const $textNode = $wrapper.clone();
+    $textNode.find('button, script, style, svg').remove();
+    const wrapperText = ($textNode.text() || '').replace(/\s+/g, ' ').trim();
+    const normalizedText = linkText || nameText || wrapperText;
+    if (!normalizedText) {
+      continue;
+    }
+
+    if (link) {
+      return `<p><strong>作者：</strong><a href="${escapeHtml(link)}">${escapeHtml(normalizedText)}</a></p>`;
+    }
+    return `<p><strong>作者：</strong>${escapeHtml(normalizedText)}</p>`;
+  }
+
+  return '';
 };
 
 const stripAllImagesFromHtml = (html: string) => {
@@ -349,6 +413,7 @@ export default new TextExtension(
       }
 
       if (isXiaohongshu) {
+        const authorInfoHtml = extractXiaohongshuAuthorInfo($documentClone, $, baseUrl);
         const noteRoot = getXiaohongshuNoteRoot($documentClone, $);
         if (noteRoot) {
           const $note = noteRoot.clone();
@@ -358,12 +423,13 @@ export default new TextExtension(
             article.content = noteHtml;
           }
         }
-        // On some XHS pages, note text and slider are rendered in separate containers.
-        // Always collect slider images from the whole document clone.
-        const sliderImageUrls = collectSliderImageUrls($documentClone, $, baseUrl);
-        if (sliderImageUrls.length > 0) {
+        const noteImageUrls = collectNoteImageUrls($documentClone, $, baseUrl);
+        if (noteImageUrls.length > 0) {
           article.content = stripAllImagesFromHtml(article.content);
-          article.content = appendImagesToHtml(article.content, sliderImageUrls);
+          article.content = appendImagesToHtml(article.content, noteImageUrls);
+        }
+        if (authorInfoHtml) {
+          article.content = `${authorInfoHtml}${article.content}`;
         }
       }
 
