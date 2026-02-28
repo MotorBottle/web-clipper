@@ -10,6 +10,9 @@ import {
 import { IWebRequestService } from '@/service/common/webRequest';
 import Container from 'typedi';
 
+const OUTLINE_DEFAULT_TIMEOUT_MS = 10000;
+const OUTLINE_CREATE_TIMEOUT_MS = 120000;
+
 export default class OutlineDocumentService implements DocumentService {
   private webRequestService: IWebRequestService;
   private baseUrl: string;
@@ -61,7 +64,7 @@ export default class OutlineDocumentService implements DocumentService {
       title,
       text: content,
       publish: true,
-    });
+    }, OUTLINE_CREATE_TIMEOUT_MS);
     const doc = response?.data || (response as any);
     const href = this.toAbsoluteUrl(doc.url || `/doc/${doc.urlId || doc.id}`);
     return {
@@ -69,13 +72,13 @@ export default class OutlineDocumentService implements DocumentService {
     };
   };
 
-  private async post<T>(method: string, data?: any): Promise<T> {
+  private async post<T>(method: string, data?: any, timeout = OUTLINE_DEFAULT_TIMEOUT_MS): Promise<T> {
     const url = `${this.baseUrl}/api/${method}`;
     try {
       return await this.webRequestService.requestInBackground<T>(url, {
         method: 'post',
         data,
-        timeout: 10000,
+        timeout,
         headers: {
           Authorization: `Bearer ${this.config.apiKey}`,
         },
